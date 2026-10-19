@@ -4,6 +4,7 @@ with Ada.Command_Line;
 with Ada.Streams;
 with Ada.Text_IO;
 with GNAT.Sockets;
+with System;
 with Imsg;
 with Interfaces;
 
@@ -609,13 +610,20 @@ begin
      ("multi-byte payload",
       Mk (1, 0, 0, [1 .. 256 => 16#5A#]));
 
-   --  Explicit little-endian field layout, matching portable imsg.c: type
+   --  Explicit host-order field layout, matching portable imsg.c: type
    --  0x01020304, length 18 (16-byte header + 2 payload), peer/pid 0,
    --  payload 0xAA 0xBB.
-   Check_Bytes
-     ("little-endian header layout",
-      Mk (16#01020304#, 0, 0, [16#AA#, 16#BB#]),
-      [4, 3, 2, 1, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16#AA#, 16#BB#]);
+   if System."=" (System.Default_Bit_Order, System.Low_Order_First) then
+      Check_Bytes
+        ("host-order (little-endian) header layout",
+         Mk (16#01020304#, 0, 0, [16#AA#, 16#BB#]),
+         [4, 3, 2, 1, 18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 16#AA#, 16#BB#]);
+   else
+      Check_Bytes
+        ("host-order (big-endian) header layout",
+         Mk (16#01020304#, 0, 0, [16#AA#, 16#BB#]),
+         [1, 2, 3, 4, 0, 0, 0, 18, 0, 0, 0, 0, 0, 0, 0, 0, 16#AA#, 16#BB#]);
+   end if;
 
    Check_Raises ("short header", [1, 2, 3]);
    Check_Raises

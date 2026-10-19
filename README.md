@@ -125,7 +125,7 @@ GPR_PROJECT_PATH=/usr/share/gpr gprbuild -P examples.gpr -p
 
 ## Wire format
 
-A frame is a 16-byte header of four 32-bit little-endian (host-order) fields
+A frame is a 16-byte header of four 32-bit host-order fields (little-endian on every Alpine target except s390x)
 followed by the payload:
 
 ```

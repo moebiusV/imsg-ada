@@ -7,7 +7,7 @@ pragma Ada_2022;
 --
 --  A frame is a 16-byte header of four 32-bit fields -- type, length,
 --  peer ID, PID -- followed by the payload.  Every field is encoded in
---  host byte order (little-endian on the x86-64 targets), exactly as
+--  host byte order (little-endian on x86-64, big-endian on s390x), exactly as
 --  imsg.c writes struct imsg_hdr; a record is never copied across a
 --  process boundary by its in-memory representation.
 --

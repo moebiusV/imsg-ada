@@ -3,29 +3,40 @@ pragma Ada_2022;
 with Ada.Unchecked_Deallocation;
 
 with Interfaces.C;
+with System;
 
 package body Imsg is
 
    use Interfaces.C;
+   use type System.Bit_Order;
    use type Interfaces.Unsigned_16;
    use type Interfaces.Unsigned_32;
    use type Interfaces.Unsigned_64;
 
-   --  Little-endian 32-bit put/get (host byte order, matching imsg.c).
+   --  imsg.c writes the header in host byte order (it never leaves the machine),
+   --  so the frame codec does too.  Index of byte K (0 = least significant) of
+   --  a 32-bit word that starts at Off.
+   Host_Is_Little : constant Boolean :=
+     System.Default_Bit_Order = System.Low_Order_First;
+
+   function Byte_At (Off : Positive; K : Natural) return Positive is
+     (if Host_Is_Little then Off + K else Off + 3 - K);
+
    procedure Put_U32 (B : in out Wire; Off : Positive; V : U32) is
    begin
-      B (Off)     := Ada.Streams.Stream_Element (V          mod 256);
-      B (Off + 1) := Ada.Streams.Stream_Element (V / 2 ** 8  mod 256);
-      B (Off + 2) := Ada.Streams.Stream_Element (V / 2 ** 16 mod 256);
-      B (Off + 3) := Ada.Streams.Stream_Element (V / 2 ** 24 mod 256);
+      for K in 0 .. 3 loop
+         B (Byte_At (Off, K)) :=
+           Ada.Streams.Stream_Element (V / 2 ** (8 * K) mod 256);
+      end loop;
    end Put_U32;
 
    function Get_U32 (B : Wire; Off : Positive) return U32 is
+      V : U32 := 0;
    begin
-      return U32 (B (Off))     * 2 ** 0
-           + U32 (B (Off + 1)) * 2 ** 8
-           + U32 (B (Off + 2)) * 2 ** 16
-           + U32 (B (Off + 3)) * 2 ** 24;
+      for K in 0 .. 3 loop
+         V := V + U32 (B (Byte_At (Off, K))) * 2 ** (8 * K);
+      end loop;
+      return V;
    end Get_U32;
 
    function Encode (F : Frame) return Wire is
@@ -201,10 +212,13 @@ package body Imsg is
          return;
       end if;
 
-      --  Set the fd-attached bit in the header's length word (byte 8 is the
-      --  most-significant byte of the little-endian length at offset 5).
-      Marked (Marked'First + 7) :=
-        Marked (Marked'First + 7) or Ada.Streams.Stream_Element (16#80#);
+      --  Set the fd-attached bit in the header's length word: the top bit of
+      --  its most-significant byte (offset 5 + 3 on little-endian hosts).
+      declare
+         Top : constant Positive := Marked'First + Byte_At (5, 3) - 1;
+      begin
+         Marked (Top) := Marked (Top) or Ada.Streams.Stream_Element (16#80#);
+      end;
 
       Iov := (Iov_Base => Marked (Marked'First)'Address,
               Iov_Len  => size_t (Marked'Length));
@@ -283,10 +297,7 @@ package body Imsg is
          end;
       end if;
 
-      Raw_Len := (U32 (Buf (5)) * 2 ** 0
-                  + U32 (Buf (6)) * 2 ** 8
-                  + U32 (Buf (7)) * 2 ** 16
-                  + U32 (Buf (8)) * 2 ** 24) and not IMSG_FD_Mark;
+      Raw_Len := Get_U32 (Wire (Buf (1 .. 8)), 5) and not IMSG_FD_Mark;
       if Raw_Len < U32 (Header_Size)
         or else Raw_Len > U32 (Max_Msg_Size)
       then
@@ -631,6 +642,26 @@ package body Imsg is
         (Interfaces.Shift_Right (V, 8) mod 256);
       B.Data.all (O + 4) := Ada.Streams.Stream_Element (V mod 256);
    end Set_U32_BE;
+
+   --  Header words go out in host byte order, like imsg.c's.
+   procedure Add_Host_U32 (B : in out Buffer; V : Interfaces.Unsigned_32) is
+   begin
+      if Host_Is_Little then
+         Add_U32_LE (B, V);
+      else
+         Add_U32_BE (B, V);
+      end if;
+   end Add_Host_U32;
+
+   procedure Set_Host_U32
+     (B : in out Buffer; Off : Natural; V : Interfaces.Unsigned_32) is
+   begin
+      if Host_Is_Little then
+         Set_U32_LE (B, Off, V);
+      else
+         Set_U32_BE (B, Off, V);
+      end if;
+   end Set_Host_U32;
 
    procedure Set_U64_LE
      (B : in out Buffer; Pos : Natural; V : Interfaces.Unsigned_64) is
@@ -1121,10 +1152,10 @@ package body Imsg is
       end if;
       B := new Buffer;
       Dynamic_Buffer (B.all, Total, C.Max_Size);
-      Add_U32_LE (B.all, Interfaces.Unsigned_32 (Kind));
-      Add_U32_LE (B.all, 0);   --  length placeholder, set in Close
-      Add_U32_LE (B.all, Interfaces.Unsigned_32 (Peer));
-      Add_U32_LE (B.all, Interfaces.Unsigned_32 (Use_Pid));
+      Add_Host_U32 (B.all, Interfaces.Unsigned_32 (Kind));
+      Add_Host_U32 (B.all, 0);   --  length placeholder, set in Close
+      Add_Host_U32 (B.all, Interfaces.Unsigned_32 (Peer));
+      Add_Host_U32 (B.all, Interfaces.Unsigned_32 (Use_Pid));
       return B;
    end Compose_Buffer;
 
@@ -1135,7 +1166,7 @@ package body Imsg is
       end if;
       --  Write the total frame size into the 16-byte header's length field
       --  (the 0-indexed offset 4, matching offsetof(struct imsg_hdr, len)).
-      Set_U32_LE (Msg.all, 4, Interfaces.Unsigned_32 (Size (Msg.all)));
+      Set_Host_U32 (Msg.all, 4, Interfaces.Unsigned_32 (Size (Msg.all)));
       C.Write_Q.Append (Msg);
       Msg := null;
       if C.Cb /= null then
