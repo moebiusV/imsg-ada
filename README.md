@@ -1,6 +1,6 @@
 # imsg-ada
 
-[Index: All Projects](https://moebiusv.github.io/) | [github.com/moebiusV/imsg-ada](https://github.com/moebiusV/imsg-ada) | `git clone https://github.com/moebiusV/imsg-ada`
+Index: [All Projects](https://moebiusv.github.io/) | Git Repository: [github.com/moebiusV/imsg-ada](https://github.com/moebiusV/imsg-ada) | `git clone https://github.com/moebiusV/imsg-ada`
 
 A port of OpenBSD's `imsg` message-passing protocol (the portable `imsg.c` /
 `imsg-buffer.c` wire format) to Ada, so a C peer using the portable `imsg.c`
